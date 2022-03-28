@@ -32,16 +32,15 @@ from ..internals import ic  # noqa: F401
 from ..internals import (
     _kwargs_to_args,
     _not_none,
-    _pop_kwargs,
-    _pop_params,
-    _pop_props,
-    _pop_rc,
-    _translate_loc,
+    _pop_items,
+    _pop_parameters,
+    _pop_properties,
+    _pop_settings,
     _version_mpl,
     docstring,
     guides,
     labels,
-    rcsetup,
+    validate,
     warnings,
 )
 from ..utils import _fontsize_to_pt, edges, units
@@ -751,13 +750,13 @@ class Axes(maxes.Axes):
         autoshare = _not_none(autoshare, True)
 
         # Remove format-related args and initialize
-        rc_kw, rc_mode = _pop_rc(kwargs)
-        kw_format = _pop_props(kwargs, 'patch')  # background properties
+        rc_kw, rc_mode = _pop_settings(kwargs)
+        kw_format = _pop_properties(kwargs, 'patch')  # background properties
         if 'zorder' in kw_format:  # special case: refers to the entire axes
             kwargs['zorder'] = kw_format.pop('zorder')
         for cls, sig in self._format_signatures.items():
             if isinstance(self, cls):
-                kw_format.update(_pop_params(kwargs, sig))
+                kw_format.update(_pop_parameters(kwargs, sig))
         super().__init__(*args, **kwargs)
 
         # Varous scalar properties
@@ -765,10 +764,12 @@ class Axes(maxes.Axes):
         self._auto_format = None  # manipulated by wrapper functions
         self._abc_border_kwargs = {}
         self._abc_loc = None
+        # self._abc_loc = rc['abc.loc']
         self._abc_title_pad = rc['abc.titlepad']
         self._title_above = rc['title.above']
         self._title_border_kwargs = {}  # title border properties
         self._title_loc = None
+        # self._title_loc = rc['abc.title']
         self._title_pad = rc['title.pad']
         self._title_pad_current = None
         self._altx_parent = None  # for cartesian axes only
@@ -1056,7 +1057,7 @@ class Axes(maxes.Axes):
         if not isinstance(mappable, mcm.ScalarMappable):
             mappable, kwargs = cax._parse_colorbar_arg(mappable, values, **kwargs)
         else:
-            pop = _pop_params(kwargs, cax._parse_colorbar_arg, ignore_internal=True)
+            pop = _pop_parameters(kwargs, cax._parse_colorbar_arg, ignore_internal=True)
             if pop:
                 warnings._warn_proplot(
                     f'Input is already a ScalarMappable. '
@@ -1215,7 +1216,7 @@ class Axes(maxes.Axes):
             )
 
         # Convert relevant keys to em-widths
-        for setting in rcsetup.EM_KEYS:  # em-width keys
+        for setting in validate.EM_KEYS:  # em-width keys
             pair = setting.split('legend.', 1)
             if len(pair) == 1:
                 continue
@@ -1256,7 +1257,7 @@ class Axes(maxes.Axes):
             kw_title['color'] = titlefontcolor
         if titlefontweight is not None:
             kw_title['weight'] = titlefontweight
-        kw_handle = _pop_props(kwargs, 'line')
+        kw_handle = _pop_properties(kwargs, 'line')
         kw_handle.setdefault('solid_capstyle', 'butt')
         kw_handle.update(handle_kw or {})
 
@@ -1599,7 +1600,7 @@ class Axes(maxes.Axes):
         """
         # NOTE: Here we permit only 'edgewidth' to avoid conflict with
         # 'linewidth' used for legend handles and colorbar edge.
-        kw_frame = _pop_kwargs(
+        kw_frame = _pop_items(
             kwargs,
             alpha=('a', 'framealpha', 'facealpha'),
             facecolor=('fc', 'framecolor', 'facecolor'),
@@ -2244,7 +2245,7 @@ class Axes(maxes.Axes):
 
         # Update a-b-c label
         loc = rc.find('abc.loc', context=True)
-        loc = self._abc_loc = _translate_loc(loc or self._abc_loc, 'text')
+        loc = self._abc_loc = validate._validate_loc(loc or self._abc_loc, 'text')
         if loc not in ('left', 'right', 'center'):
             kw.update(self._abc_border_kwargs)
         kw.update(kwargs)
@@ -2301,11 +2302,11 @@ class Axes(maxes.Axes):
         # Get the title location. If 'titleloc' was used then transfer text
         # from the old location to the new location.
         if loc is not None:
-            loc = _translate_loc(loc, 'text')
+            loc = validate._validate_loc(loc, 'text')
         else:
             old = self._title_loc
             loc = rc.find('title.loc', context=True)
-            loc = self._title_loc = _translate_loc(loc or self._title_loc, 'text')
+            loc = self._title_loc = validate._validate_loc(loc or self._title_loc, 'text')  # noqa: E501
             if loc != old and old is not None:
                 labels._transfer_label(self._title_dict[old], self._title_dict[loc])
 
@@ -2507,10 +2508,10 @@ class Axes(maxes.Axes):
         proplot.config.Configurator.context
         """
         skip_figure = kwargs.pop('skip_figure', False)  # internal keyword arg
-        params = _pop_params(kwargs, self.figure._format_signature)
+        params = _pop_parameters(kwargs, self.figure._format_signature)
 
         # Initiate context block
-        rc_kw, rc_mode = _pop_rc(kwargs)
+        rc_kw, rc_mode = _pop_settings(kwargs)
         with rc.context(rc_kw, mode=rc_mode):
             # Behavior of titles in presence of panels
             above = rc.find('title.above', context=True)
@@ -2631,7 +2632,7 @@ class Axes(maxes.Axes):
         # Includes both proplot syntax with positional arguments interpreted as
         # color arguments and oldschool matplotlib cycler(key, value) syntax.
         if len(args) == 2 and isinstance(args[0], str) and np.iterable(args[1]):
-            if _pop_props({args[0]: object()}, 'line'):  # if a valid line property
+            if _pop_properties({args[0]: object()}, 'line'):  # if a valid line property
                 kwargs = {args[0]: args[1]}  # pass as keyword argument
                 args = ()
         cycle = self._active_cycle = constructor.Cycle(*args, **kwargs)
@@ -2660,7 +2661,7 @@ class Axes(maxes.Axes):
         parent = self._inset_parent
         if not parent:
             raise ValueError('This command can only be called from an inset axes.')
-        kwargs.update(_pop_props(kwargs, 'patch'))  # impose alternative defaults
+        kwargs.update(_pop_properties(kwargs, 'patch'))  # impose alternative defaults
         if not self._inset_zoom_artists:
             kwargs.setdefault('zorder', 3.5)
             kwargs.setdefault('linewidth', rc['axes.linewidth'])
@@ -2755,19 +2756,20 @@ class Axes(maxes.Axes):
         proplot.figure.Figure.colorbar
         matplotlib.figure.Figure.colorbar
         """
-        # Translate location and possibly infer from orientation. Also optionally
-        # infer align setting from keywords stored on object.
+        # Translate location and possibly infer from orientation. Also
+        # optionally infer align setting from keywords stored on object.
         orientation = kwargs.get('orientation', None)
         kwargs = guides._flush_guide_kw(mappable, 'colorbar', kwargs)
         loc = _not_none(loc=loc, location=location)
-        if orientation is not None:  # possibly infer loc from orientation
-            if orientation not in ('vertical', 'horizontal'):
-                raise ValueError(f"Invalid colorbar orientation {orientation!r}. Must be 'vertical' or 'horizontal'.")   # noqa: E501
-            if loc is None:
-                loc = {'vertical': 'right', 'horizontal': 'bottom'}[orientation]
-        loc = _translate_loc(loc, 'colorbar', default=rc['colorbar.loc'])
         align = kwargs.pop('align', None)
-        align = _translate_loc(align, 'align', default='center')
+        if orientation is None:  # possibly infer loc from orientation
+            pass
+        elif orientation not in ('vertical', 'horizontal'):
+            raise ValueError(f"Invalid colorbar orientation {orientation!r}. Must be 'vertical' or 'horizontal'.")   # noqa: E501
+        elif loc is None:
+            loc = {'vertical': 'right', 'horizontal': 'bottom'}[orientation]
+        loc = validate._validate_loc(loc, 'colorbar', default=rc['colorbar.loc'])
+        align = validate._validate_loc(align, 'align', default='center')
 
         # Either draw right now or queue up for later. The queue option lets us
         # successively append objects (e.g. lines) to a colorbar artist list.
@@ -2827,13 +2829,13 @@ class Axes(maxes.Axes):
         proplot.figure.Figure.legend
         matplotlib.axes.Axes.legend
         """
-        # Translate location and possibly infer from orientation. Also optionally
-        # infer align setting from keywords stored on object.
+        # Translate the location and align keywords, possibly retrieving the
+        # align mode from keyword arguments stored on the object.
         kwargs = guides._flush_guide_kw(handles, 'legend', kwargs)
         loc = _not_none(loc=loc, location=location)
-        loc = _translate_loc(loc, 'legend', default=rc['legend.loc'])
         align = kwargs.pop('align', None)
-        align = _translate_loc(align, 'align', default='center')
+        loc = validate._validate_loc(loc, 'legend', default=rc['legend.loc'])
+        align = validate._validate_loc(align, 'align', default='center')
 
         # Either draw right now or queue up for later. Handles can be successively
         # added to a single location this way. Used for on-the-fly legends.
@@ -2917,7 +2919,7 @@ class Axes(maxes.Axes):
             transform = self._get_transform(transform)
         with warnings.catch_warnings():  # ignore duplicates (internal issues?)
             warnings.simplefilter('ignore', warnings.ProplotWarning)
-            kwargs.update(_pop_props(kwargs, 'text'))
+            kwargs.update(_pop_properties(kwargs, 'text'))
 
         # Update the text object using a monkey patch
         obj = func(*args, transform=transform, **kwargs)

@@ -15,7 +15,7 @@ from .. import constructor
 from .. import proj as pproj
 from ..config import rc
 from ..internals import ic  # noqa: F401
-from ..internals import _not_none, _pop_rc, _version_cartopy, docstring, warnings
+from ..internals import _not_none, _pop_settings, _version_cartopy, docstring, warnings
 from . import plot
 
 try:
@@ -594,7 +594,7 @@ class GeoAxes(plot.PlotAxes):
                 self._map_boundary = object()  # sentinel
 
         # Initiate context block
-        rc_kw, rc_mode = _pop_rc(kwargs)
+        rc_kw, rc_mode = _pop_settings(kwargs)
         lonlabels = _not_none(lonlabels, labels)
         latlabels = _not_none(latlabels, labels)
         if '0.18' <= _version_cartopy < '0.20':
@@ -1030,7 +1030,8 @@ class _CartopyAxes(GeoAxes, _GeoAxes):
         except KeyError:
             raise ValueError(
                 f'Invalid resolution {reso!r}. Options are: '
-                + ', '.join(map(repr, constructor.RESOS_CARTOPY)) + '.'
+                + ', '.join(map(repr, constructor.RESOS_CARTOPY))
+                + '.'
             )
         for name, args in constructor.FEATURES_CARTOPY.items():
             # Draw feature or toggle feature off

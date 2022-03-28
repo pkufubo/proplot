@@ -8,7 +8,13 @@ from . import axes as paxes
 from . import figure as pfigure
 from . import gridspec as pgridspec
 from .internals import ic  # noqa: F401
-from .internals import _not_none, _pop_params, _pop_props, _pop_rc, docstring
+from .internals import (
+    _not_none,
+    _pop_parameters,
+    _pop_properties,
+    _pop_settings,
+    docstring,
+)
 
 __all__ = [
     'figure',
@@ -173,11 +179,11 @@ def subplot(**kwargs):
     matplotlib.figure.Figure
     """
     _parse_figsize(kwargs)
-    rc_kw, rc_mode = _pop_rc(kwargs)
-    kwsub = _pop_props(kwargs, 'patch')  # e.g. 'color'
-    kwsub.update(_pop_params(kwargs, pfigure.Figure._parse_proj))
+    rc_kw, rc_mode = _pop_settings(kwargs)
+    kwsub = _pop_properties(kwargs, 'patch')  # e.g. 'color'
+    kwsub.update(_pop_parameters(kwargs, pfigure.Figure._parse_proj))
     for sig in paxes.Axes._format_signatures.values():
-        kwsub.update(_pop_params(kwargs, sig))
+        kwsub.update(_pop_parameters(kwargs, sig))
     kwargs['aspect'] = kwsub.pop('aspect', None)  # keyword conflict
     fig = figure(rc_kw=rc_kw, **kwargs)
     ax = fig.add_subplot(rc_kw=rc_kw, **kwsub)
@@ -218,12 +224,12 @@ def subplots(*args, **kwargs):
     matplotlib.figure.Figure
     """
     _parse_figsize(kwargs)
-    rc_kw, rc_mode = _pop_rc(kwargs)
-    kwsubs = _pop_props(kwargs, 'patch')  # e.g. 'color'
-    kwsubs.update(_pop_params(kwargs, pfigure.Figure._add_subplots))
-    kwsubs.update(_pop_params(kwargs, pgridspec.GridSpec._update_params))
+    rc_kw, rc_mode = _pop_settings(kwargs)
+    kwsubs = _pop_properties(kwargs, 'patch')  # e.g. 'color'
+    kwsubs.update(_pop_parameters(kwargs, pfigure.Figure._add_subplots))
+    kwsubs.update(_pop_parameters(kwargs, pgridspec.GridSpec._update_params))
     for sig in paxes.Axes._format_signatures.values():
-        kwsubs.update(_pop_params(kwargs, sig))
+        kwsubs.update(_pop_parameters(kwargs, sig))
     for key in ('subplot_kw', 'gridspec_kw'):  # deprecated args
         if key in kwargs:
             kwsubs[key] = kwargs.pop(key)

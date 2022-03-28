@@ -23,19 +23,18 @@ import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.font_manager as mfonts
 import matplotlib.mathtext  # noqa: F401
-import matplotlib.style.core as mstyle
 import numpy as np
-from matplotlib import RcParams
 
 from .internals import ic  # noqa: F401
 from .internals import (
     _not_none,
-    _pop_kwargs,
-    _pop_props,
-    _translate_grid,
+    _pop_items,
+    _pop_properties,
     _version_mpl,
+    defaults,
     docstring,
-    rcsetup,
+    settings,
+    styles,
     warnings,
 )
 
@@ -214,148 +213,14 @@ def _iter_data_objects(folder, *args, **kwargs):
             raise FileNotFoundError(f'Invalid file path {path!r}.')
 
 
-def _filter_style_dict(rcdict, warn=True):
+def _to_prop_cycle(cycle):
     """
-    Filter out blacklisted style parameters.
+    Return the `~cycler.Cycler` instance corresponding to the registered
+    input `~proplot.colors.DiscreteColormap` name.
     """
-    # NOTE: This implements bugfix: https://github.com/matplotlib/matplotlib/pull/17252
-    # This fix is *critical* for proplot because we always run style.use()
-    # when the configurator is made. Without fix backend is reset every time
-    # you import proplot in jupyter notebooks. So apply retroactively.
-    rcdict_filtered = {}
-    for key in rcdict:
-        if key in mstyle.STYLE_BLACKLIST:
-            if warn:
-                warnings._warn_proplot(
-                    f'Dictionary includes a parameter, {key!r}, that is not related '
-                    'to style. Ignoring.'
-                )
-        else:
-            rcdict_filtered[key] = rcdict[key]
-    return rcdict_filtered
-
-
-def _get_default_style_dict():
-    """
-    Get the default rc parameters dictionary with deprecated parameters filtered.
-    """
-    # NOTE: Use RcParams update to filter and translate deprecated settings
-    # before actually applying them to rcParams down pipeline. This way we can
-    # suppress warnings for deprecated default params but still issue warnings
-    # when user-supplied stylesheets have deprecated params.
-    # WARNING: Some deprecated rc params remain in dictionary as None so we
-    # filter them out. Beware if hidden attribute changes.
-    # WARNING: The examples.directory deprecation was handled specially inside
-    # RcParams in early versions. Manually pop it out here.
-    rcdict = _filter_style_dict(mpl.rcParamsDefault, warn=False)
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', mpl.MatplotlibDeprecationWarning)
-        rcdict = dict(RcParams(rcdict))
-    for attr in ('_deprecated_set', '_deprecated_remain_as_none'):
-        deprecated = getattr(mpl, attr, ())
-        for key in deprecated:  # _deprecated_set is in matplotlib < 3.4
-            rcdict.pop(key, None)
-    rcdict.pop('examples.directory', None)  # special case for matplotlib < 3.2
-    return rcdict
-
-
-def _get_style_dict(style, filter=True):
-    """
-    Return a dictionary of settings belonging to the requested style(s). If `filter`
-    is ``True``, invalid style parameters like `backend` are filtered out.
-    """
-    # NOTE: This is adapted from matplotlib source for the following changes:
-    # 1. Add an 'original' pseudo style. Like rcParamsOrig except we also reload
-    #    from the user matplotlibrc file.
-    # 2. When the style is changed we reset to the default state ignoring matplotlibrc.
-    #    By contrast matplotlib applies styles on top of current state (including
-    #    matplotlibrc changes and runtime rcParams changes) but the word 'style'
-    #    implies a rigid static format. This makes more sense.
-    # 3. Add a separate function that returns lists of style dictionaries so that
-    #    we can modify the active style in a context block. Proplot context is more
-    #    conservative than matplotlib's rc_context because it gets called a lot
-    #    (e.g. every time you make an axes and every format() call). Instead of
-    #    copying the entire rcParams dict we just track the keys that were changed.
-    style_aliases = {
-        '538': 'fivethirtyeight',
-        'mpl20': 'default',
-        'mpl15': 'classic',
-        'original': mpl.matplotlib_fname(),
-    }
-
-    # Always apply the default style *first* so styles are rigid
-    kw_matplotlib = _get_default_style_dict()
-    if style == 'default' or style is mpl.rcParamsDefault:
-        return kw_matplotlib
-
-    # Apply limited deviations from the matplotlib style that we want to propagate to
-    # other styles. Want users selecting stylesheets to have few surprises, so
-    # currently just enforce the new aesthetically pleasing fonts.
-    kw_matplotlib['font.family'] = 'sans-serif'
-    for fmly in ('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy'):
-        kw_matplotlib['font.' + fmly] = rcsetup._rc_matplotlib_default['font.' + fmly]
-
-    # Apply user input style(s) one by one
-    if isinstance(style, str) or isinstance(style, dict):
-        styles = [style]
-    else:
-        styles = style
-    for style in styles:
-        if isinstance(style, dict):
-            kw = style
-        elif isinstance(style, str):
-            style = style_aliases.get(style, style)
-            if style in mstyle.library:
-                kw = mstyle.library[style]
-            else:
-                try:
-                    kw = mpl.rc_params_from_file(style, use_default_template=False)
-                except IOError:
-                    raise IOError(
-                        f'Style {style!r} not found in the style library and input '
-                        'is not a valid URL or file path. Available styles are: '
-                        + ', '.join(map(repr, mstyle.available))
-                        + '.'
-                    )
-        else:
-            raise ValueError(f'Invalid style {style!r}. Must be string or dictionary.')
-        if filter:
-            kw = _filter_style_dict(kw, warn=True)
-        kw_matplotlib.update(kw)
-
-    return kw_matplotlib
-
-
-def _infer_proplot_dict(kw_params):
-    """
-    Infer values for proplot's "added" parameters from stylesheet parameters.
-    """
-    kw_proplot = {}
-    mpl_to_proplot = {
-        'xtick.labelsize': (
-            'tick.labelsize', 'grid.labelsize',
-        ),
-        'ytick.labelsize': (
-            'tick.labelsize', 'grid.labelsize',
-        ),
-        'axes.titlesize': (
-            'abc.size', 'suptitle.size', 'title.size',
-            'leftlabel.size', 'rightlabel.size',
-            'toplabel.size', 'bottomlabel.size',
-        ),
-        'text.color': (
-            'abc.color', 'suptitle.color', 'title.color',
-            'tick.labelcolor', 'grid.labelcolor',
-            'leftlabel.color', 'rightlabel.color',
-            'toplabel.color', 'bottomlabel.color',
-        ),
-    }
-    for key, params in mpl_to_proplot.items():
-        if key in kw_params:
-            value = kw_params[key]
-            for param in params:
-                kw_proplot[param] = value
-    return kw_proplot
+    from .colors import _get_cmap_subtype
+    cmap = _get_cmap_subtype(cycle, 'discrete')
+    return cycler.cycler('color', cmap.colors)
 
 
 def config_inline_backend(fmt=None):
@@ -412,22 +277,61 @@ def use_style(style):
     Parameters
     ----------
     style : str or sequence or dict-like
-        The matplotlib style name(s) or stylesheet filename(s), or dictionary(s)
-        of settings. Use ``'default'`` to apply matplotlib default settings and
-        ``'original'`` to include settings from your user ``matplotlibrc`` file.
+        A dictionary of settings or the path to a valid style name or stylesheet
+        filename. Pass a list to apply more than one style in succession. The valid
+        style names are listed in the following table.
+
+        .. _style_table:
+
+        ================  =======================================================================================================================================================
+        Name              Description
+        ================  =======================================================================================================================================================
+        ``None``          The default proplot settings including the ``proplotrc`` files `~proplot.config.Configurator.user_file` and `~proplot.config.Configurator.local_files`.
+        ``'proplot'``     The default proplot settings excluding user and local overrides.
+        ``'original'``    The default matplotlib settings including the ``matplotlibrc`` file `~matplotlib.matplotlib_fname`.
+        ``'default'``     The default matplotlib settings excluding proplot overrides.
+        ``'classic'``     The classic matplotlib settings before version 2.0.0.
+        ``'texgyre'``     The default proplot :ref:`TeX Gyre fonts <ug_fonts_included>`.
+        ``'matplotlib'``  Alias for ``'default'``. Included for consistency with the ``'proplot'`` style.
+        ``'mpl20'``       Alias for ``'default'``. Included for backwards compatibility with matplotlib.
+        ``'mpl15'``       Alias for ``'classic'``. Included for backwards compatibility with matplotlib.
+        path-like         The path to a valid ``matplotlibrc`` style file.
+        string            A style listed in `~matplotlib.style.available`.
+        ================  =======================================================================================================================================================
+
+    Returns
+    -------
+    kw_matplotlib : dict
+        The `rc_matplotlib` settings associated with this style.
+    kw_proplot : dict
+        The `rc_proplot` settings associated with this style.
+
+    Important
+    ---------
+    While `matplotlib.style.use` applies styles on top of the currently
+    active settings, proplot's `~proplot.config.use_style` applies styles
+    on top of a base state consisting of the matplotlib defaults ``'default'`` and the
+    proplot TeX Gyre fonts ``'texgyre'`` (see the :ref:`fonts guide <ug_fonts_included>`
+    for details). This ensures consistency with matplotlib, so that proplot figures
+    made after calling (e.g.) ``pplt.use_style('fivethirtyeight')`` will look similar to
+    matplotlib figures made after calling ``matplotlib.style.use('fivethirtyeight')``.
+    Note that the base state is not applied when requesting any of the "special"
+    styles ``None``, ``'proplot'``, ``'original'``, ``'default'``, or ``'classic'``
+    listed in the :ref:`above table <style_table>`.
 
     See also
     --------
     Configurator
     matplotlib.style.use
-    """
+    """  # noqa: E501
     # NOTE: This function is not really necessary but makes proplot's
     # stylesheet-supporting features obvious. Plus changing the style does
     # so much *more* than changing rc params or quick settings, so it is
-    # nice to have dedicated function instead of just another rc_param name.
-    kw_matplotlib = _get_style_dict(style)
+    # nice to have dedicated function instead of just another rc name.
+    kw_matplotlib, kw_proplot = styles._parse_style_spec(style)  # warnings issued here
     rc_matplotlib.update(kw_matplotlib)
-    rc_proplot.update(_infer_proplot_dict(kw_matplotlib))
+    rc_proplot.update(kw_proplot)  # duplicate warnings suppressed during validation
+    return kw_matplotlib, kw_proplot
 
 
 @docstring._snippet_manager
@@ -727,14 +631,19 @@ class Configurator(MutableMapping, dict):
         raise RuntimeError('rc settings cannot be deleted.')
 
     @docstring._snippet_manager
-    def __init__(self, local=True, user=True, default=True, **kwargs):
+    def __init__(self, local=True, user=True, default=True, skip_prop_cycle=False):
         """
         Parameters
         ----------
         %(rc.params)s
         """
         self._context = []
-        self._init(local=local, user=user, default=default, **kwargs)
+        self._init(
+            local=local,
+            user=user,
+            default=default,
+            skip_prop_cycle=skip_prop_cycle,
+        )
 
     def __getitem__(self, key):
         """
@@ -814,28 +723,25 @@ class Configurator(MutableMapping, dict):
             rc_matplotlib.update(kw_matplotlib)
         del self._context[-1]
 
-    def _init(self, *, local, user, default, skip_cycle=False):
+    def _init(self, *, local, user, default, skip_prop_cycle=False):
         """
         Initialize the configurator.
         """
-        # Always remove context objects
+        # Remove context objects
         self._context.clear()
 
         # Update from default settings
-        # NOTE: see _remove_blacklisted_style_params bugfix
+        # NOTE: The default parameters are pre-synced so that defaults can be
+        # cleanly stores so _get_item_dicts syncing is not necessary here.
         if default:
-            rc_matplotlib.update(_get_style_dict('original', filter=False))
-            rc_matplotlib.update(rcsetup._rc_matplotlib_default)
-            rc_proplot.update(rcsetup._rc_proplot_default)
-            for key, value in rc_proplot.items():
-                kw_proplot, kw_matplotlib = self._get_item_dicts(
-                    key, value, skip_cycle=skip_cycle
-                )
-                rc_matplotlib.update(kw_matplotlib)
-                rc_proplot.update(kw_proplot)
+            rc_matplotlib.update(styles._get_style_dict('original'))
+            rc_matplotlib.update(settings._rc_matplotlib_override)
+            rc_proplot.update(settings._rc_proplot_default)
+            config_inline_backend(rc_proplot['inlineformat'])
+            if not skip_prop_cycle:
+                rc_matplotlib['axes.prop_cycle'] = _to_prop_cycle(rc_proplot['cycle'])
 
         # Update from user home
-        user_path = None
         if user:
             user_path = self.user_file()
             if os.path.isfile(user_path):
@@ -845,8 +751,6 @@ class Configurator(MutableMapping, dict):
         if local:
             local_paths = self.local_files()
             for path in local_paths:
-                if path == user_path:  # local files always have precedence
-                    continue
                 self.load(path)
 
     @staticmethod
@@ -861,7 +765,7 @@ class Configurator(MutableMapping, dict):
             raise KeyError(f'Invalid key {key!r}. Must be string.')
         key = key.lower()
         if '.' not in key:
-            key = rcsetup._rc_nodots.get(key, key)
+            key = settings._rc_nodots.get(key, key)
         key, value = rc_proplot._check_key(key, value)  # may issue deprecation warning
         return key, value
 
@@ -870,12 +774,8 @@ class Configurator(MutableMapping, dict):
         """
         Validate setting values and convert numpy ndarray to list if possible.
         """
-        # NOTE: Ideally would implicitly validate on subsequent assignment to rc
-        # dictionaries, but must explicitly do it here, so _get_item_dicts can
-        # work with e.g. 'tick.lenratio', so _get_item_dicts does not have to include
-        # deprecated name handling in its if statements, and so _load_file can
-        # catch errors and emit warnings with line number indications as files
-        # are being read rather than after the end of the file reading.
+        # NOTE: Since rcParams.validate is not part of public API we possibly
+        # bypass this step to guard against future changes.
         if isinstance(value, np.ndarray):
             value = value.item() if value.size == 1 else value.tolist()
         validate_matplotlib = getattr(rc_matplotlib, 'validate', None)
@@ -896,38 +796,42 @@ class Configurator(MutableMapping, dict):
             mode = self._context_mode
         cache = tuple(context.rc_new for context in self._context)
         if mode == 0:
-            rcdicts = (*cache, rc_proplot, rc_matplotlib)
+            kws = (*cache, rc_proplot, rc_matplotlib)
         elif mode == 1:
-            rcdicts = (*cache, rc_proplot)  # added settings only!
+            kws = (*cache, rc_proplot)  # added settings only!
         elif mode == 2:
-            rcdicts = (*cache,)
+            kws = (*cache,)
         else:
             raise ValueError(f'Invalid caching mode {mode!r}.')
-        for rcdict in rcdicts:
-            if not rcdict:
+        for kw in kws:
+            if not kw:
                 continue
             try:
-                return rcdict[key]
+                return kw[key]
             except KeyError:
                 continue
         if mode == 0:  # otherwise return None
             raise KeyError(f'Invalid rc setting {key!r}.')
 
-    def _get_item_dicts(self, key, value, skip_cycle=False):
+    def _get_item_dicts(self, key, value):
         """
-        Return dictionaries for updating the `rc_proplot` and `rc_matplotlib`
-        properties associated with this key. Used when setting items, entering
-        context blocks, or loading files.
+        Return dicts for updating the proplot and matplotlib settings associated with
+        this key. Used when setting items, entering context blocks, or loading files.
         """
         # Get validated key, value, and child keys
+        # NOTE: Ideally would implicitly validate keys/values on subsequent assignment
+        # to rc dictionaries, but must explicitly do it here so we can do syncing steps
+        # without errors (e.g. 'tick.lenratio'), so we do not have to include deprecated
+        # names in contains() statements, and so _load_file can catch errors and emit
+        # warnings with line number info as files are read rather than at the very end.
         key, value = self._validate_key(key, value)
         value = self._validate_value(key, value)
-        keys = (key,) + rcsetup._rc_children.get(key, ())  # settings to change
-        contains = lambda *args: any(arg in keys for arg in args)  # noqa: E731
+        keys = (key,) + defaults._rc_children.get(key, ())
 
         # Fill dictionaries of matplotlib and proplot settings
-        # NOTE: Raise key error right away so it can be caught by _load_file().
-        # Also ignore deprecation warnings so we only get them *once* on assignment
+        # NOTE: Raise key errors here so they can be caught by _load_file(). Also
+        # ignore deprecation warnings triggered by 'key in rc_matplotlib' and
+        # 'key in rc_proplot' so we only get them *once* on assignment
         kw_proplot = {}  # custom properties
         kw_matplotlib = {}  # builtin properties
         with warnings.catch_warnings():
@@ -941,51 +845,43 @@ class Configurator(MutableMapping, dict):
                 else:
                     raise KeyError(f'Invalid rc setting {key!r}.')
 
-        # Special key: configure inline backend
-        if contains('inlineformat'):
+        # Configure the global backend
+        if 'inlineformat' in keys:
             config_inline_backend(value)
 
-        # Special key: apply stylesheet
-        elif contains('style'):
-            if value is not None:
-                ikw_matplotlib = _get_style_dict(value)
-                kw_matplotlib.update(ikw_matplotlib)
-                kw_proplot.update(_infer_proplot_dict(ikw_matplotlib))
+        # Configure the property cycler
+        elif 'cycle' in keys:
+            kw_matplotlib['axes.prop_cycle'] = _to_prop_cycle(value)
 
-        # Cycler
-        # NOTE: Have to skip this step during initial proplot import
-        elif contains('cycle') and not skip_cycle:
-            from .colors import _get_cmap_subtype
-            cmap = _get_cmap_subtype(value, 'discrete')
-            kw_matplotlib['axes.prop_cycle'] = cycler.cycler('color', cmap.colors)
-            kw_matplotlib['patch.facecolor'] = 'C0'
+        # Configure the global style
+        elif 'style' in keys:
+            value, kw_matplotlib, kw_proplot = styles._parse_style_spec(
+                value, allow_dictionary=False
+            )
+            kw_proplot['style'] = value
 
-        # Turning bounding box on should turn border off and vice versa
-        elif contains('abc.bbox', 'title.bbox', 'abc.border', 'title.border'):
-            if value:
+        # Toggle bounding box or border
+        # TODO: Consider using strings like abc.outline = 'box' or 'border'?
+        elif any(s in keys for s in ('abc.bbox', 'title.bbox', 'abc.border', 'title.border')):  # noqa: E501
+            if value:  # turn the other option off
                 name, this = key.split('.')
                 other = 'border' if this == 'bbox' else 'bbox'
                 kw_proplot[name + '.' + other] = False
 
-        # Fontsize
-        # NOTE: Re-application of e.g. size='small' uses the updated 'font.size'
-        elif contains('font.size'):
-            kw_proplot.update(
-                {
-                    key: value for key, value in rc_proplot.items()
-                    if key in rcsetup.FONT_KEYS and value in mfonts.font_scalings
-                }
-            )
-            kw_matplotlib.update(
-                {
-                    key: value for key, value in rc_matplotlib.items()
-                    if key in rcsetup.FONT_KEYS and value in mfonts.font_scalings
-                }
-            )
+        # Global font size
+        # NOTE: The updated 'font.size' is used when re-applying e.g. size='small'
+        elif 'font.size' in keys:
+            for rc, kw in zip((rc_proplot, rc_matplotlib), (kw_proplot, kw_matplotlib)):
+                kw.update(
+                    {
+                        key: value for key, value in rc.items()
+                        if key in defaults.FONT_KEYS and value in mfonts.font_scalings
+                    }
+                )
 
         # Tick length/major-minor tick length ratio
-        elif contains('tick.len', 'tick.lenratio'):
-            if contains('tick.len'):
+        elif 'tick.len' in keys or 'tick.lenratio' in keys:
+            if 'tick.len' in keys:
                 ticklen = value
                 ratio = rc_proplot['tick.lenratio']
             else:
@@ -994,9 +890,9 @@ class Configurator(MutableMapping, dict):
             kw_matplotlib['xtick.minor.size'] = ticklen * ratio
             kw_matplotlib['ytick.minor.size'] = ticklen * ratio
 
-        # Spine width/major-minor tick width ratio
-        elif contains('tick.width', 'tick.widthratio'):
-            if contains('tick.width'):
+        # Tick width/major-minor tick width ratio
+        elif 'tick.width' in keys or 'tick.widthratio' in keys:
+            if 'tick.width' in keys:
                 tickwidth = value
                 ratio = rc_proplot['tick.widthratio']
             else:
@@ -1005,9 +901,17 @@ class Configurator(MutableMapping, dict):
             kw_matplotlib['xtick.minor.width'] = tickwidth * ratio
             kw_matplotlib['ytick.minor.width'] = tickwidth * ratio
 
+        # Gridline toggling
+        elif 'grid' in keys or 'gridminor' in keys:
+            b, which = settings._convert_grid_param(
+                value, 'gridminor' if 'gridminor' in keys else 'grid'
+            )
+            kw_matplotlib['axes.grid'] = b
+            kw_matplotlib['axes.grid.which'] = which
+
         # Gridline width
-        elif contains('grid.width', 'grid.widthratio'):
-            if contains('grid.width'):
+        elif 'grid.width' in keys or 'grid.widthratio' in keys:
+            if 'grid.width' in keys:
                 gridwidth = value
                 ratio = rc_proplot['grid.widthratio']
             else:
@@ -1015,14 +919,6 @@ class Configurator(MutableMapping, dict):
                 ratio = value
             kw_proplot['gridminor.linewidth'] = gridwidth * ratio
             kw_proplot['gridminor.width'] = gridwidth * ratio
-
-        # Gridline toggling
-        elif contains('grid', 'gridminor'):
-            b, which = _translate_grid(
-                value, 'gridminor' if contains('gridminor') else 'grid'
-            )
-            kw_matplotlib['axes.grid'] = b
-            kw_matplotlib['axes.grid.which'] = which
 
         return kw_proplot, kw_matplotlib
 
@@ -1058,7 +954,7 @@ class Configurator(MutableMapping, dict):
         # Get user-input properties and changed rc settings
         # NOTE: Here we use 'color' as an alias for just 'edgecolor' rather than
         # both 'edgecolor' and 'facecolor' to match 'xcolor' and 'ycolor' arguments.
-        props = _pop_props(kwargs, 'patch')
+        props = _pop_properties(kwargs, 'patch')
         if 'color' in props:
             props.setdefault('edgecolor', props.pop('color'))
         for key in ('alpha', 'facecolor', 'linewidth', 'edgecolor'):
@@ -1067,8 +963,8 @@ class Configurator(MutableMapping, dict):
                 props.setdefault(key, value)
 
         # Partition properties into face and edge
-        kw_face = _pop_kwargs(props, 'alpha', 'facecolor')
-        kw_edge = _pop_kwargs(props, 'edgecolor', 'linewidth', 'linestyle')
+        kw_face = _pop_items(props, 'alpha', 'facecolor')
+        kw_edge = _pop_items(props, 'edgecolor', 'linewidth', 'linestyle')
         kw_edge['capstyle'] = 'projecting'  # NOTE: needed to fix cartopy bounds
         if 'color' in props:
             kw_edge.setdefault('edgecolor', props.pop('color'))
@@ -1224,11 +1120,12 @@ class Configurator(MutableMapping, dict):
         Configurator.local_folders
         """
         cdir = os.getcwd()
+        user = Configurator.user_file()
         paths = []
         while cdir:  # i.e. not root
             for name in ('proplotrc', '.proplotrc'):
                 path = os.path.join(cdir, name)
-                if os.path.isfile(path):
+                if path != user and os.path.isfile(path):
                     paths.append(path)
             ndir = os.path.dirname(cdir)
             if ndir == cdir:  # root
@@ -1451,10 +1348,10 @@ class Configurator(MutableMapping, dict):
         Configurator.fill
         """
         kw = {}
-        if cat not in rcsetup._rc_categories:
+        if cat not in defaults._rc_categories:
             raise ValueError(
                 f'Invalid rc category {cat!r}. Valid categories are: '
-                + ', '.join(map(repr, rcsetup._rc_categories))
+                + ', '.join(map(repr, defaults._rc_categories))
                 + '.'
             )
         for key in self:
@@ -1555,7 +1452,7 @@ class Configurator(MutableMapping, dict):
             self.__setitem__(prefix + key, value)
 
     @docstring._snippet_manager
-    def reset(self, local=True, user=True, default=True, **kwargs):
+    def reset(self, local=True, user=True, default=True):
         """
         Reset the configurator to its initial state.
 
@@ -1563,7 +1460,12 @@ class Configurator(MutableMapping, dict):
         ----------
         %(rc.params)s
         """
-        self._init(local=local, user=user, default=default, **kwargs)
+        self._init(
+            local=local,
+            user=user,
+            default=default,
+            skip_none_style=True,
+        )
 
     def _load_file(self, path):
         """
@@ -1571,9 +1473,9 @@ class Configurator(MutableMapping, dict):
         """
         # WARNING: Critical to not yet apply _get_item_dicts() syncing or else we
         # can overwrite input settings (e.g. label.size followed by font.size).
+        kw = {}
         path = os.path.expanduser(path)
         added = set()
-        rcdict = {}
         with open(path, 'r') as fh:
             for idx, line in enumerate(fh):
                 # Strip comments
@@ -1613,9 +1515,9 @@ class Configurator(MutableMapping, dict):
                         key, value = self._validate_key(key, value)
                         value = self._validate_value(key, value)
                 # Update the settings
-                rcdict[key] = value
+                kw[key] = value
 
-        return rcdict
+        return kw
 
     def load(self, path):
         """
@@ -1630,8 +1532,8 @@ class Configurator(MutableMapping, dict):
         --------
         Configurator.save
         """
-        rcdict = self._load_file(path)
-        for key, value in rcdict.items():
+        kw = self._load_file(path)
+        for key, value in kw.items():
             self.__setitem__(key, value)
 
     @staticmethod
@@ -1639,39 +1541,19 @@ class Configurator(MutableMapping, dict):
         """
         Create an RST table file. Used for online docs.
         """
-        string = rcsetup._rst_table()
+        string = settings._get_rst_table()
         with open(path, 'w') as fh:
             fh.write(string)
 
     @staticmethod
-    def _save_yaml(path, user_dict=None, *, comment=False, description=False):
+    def _save_yaml(path, changed=None, comment=None, description=False):
         """
         Create a YAML file. Used for online docs and default and user-generated
-        proplotrc files. Extra settings can be passed with the input dictionary.
+        proplotrc files. Extra settings can be passed with an input dictionary.
         """
-        user_table = ()
-        if user_dict:  # add always-uncommented user settings
-            user_table = rcsetup._yaml_table(user_dict, comment=False)
-            user_table = ('# Changed settings', user_table, '')
-        proplot_dict = rcsetup._rc_proplot_table if description else rcsetup._rc_proplot_default  # noqa: E501
-        proplot_table = rcsetup._yaml_table(proplot_dict, comment=comment, description=description)  # noqa: E501
-        proplot_table = ('# Proplot settings', proplot_table, '')
-        matplotlib_dict = rcsetup._rc_matplotlib_default
-        matplotlib_table = rcsetup._yaml_table(matplotlib_dict, comment=comment)
-        matplotlib_table = ('# Matplotlib settings', matplotlib_table)
-        parts = (
-            '#--------------------------------------------------------------------',
-            '# Use this file to change the default proplot and matplotlib settings.',
-            '# The syntax is identical to matplotlibrc syntax. For details see:',
-            '# https://proplot.readthedocs.io/en/latest/configuration.html',
-            '# https://matplotlib.org/stable/tutorials/introductory/customizing.html',
-            '#--------------------------------------------------------------------',
-            *user_table,  # empty if nothing passed
-            *proplot_table,
-            *matplotlib_table,
-        )
+        string = settings._get_yaml_table(changed, comment, description)
         with open(path, 'w') as fh:
-            fh.write('\n'.join(parts))
+            fh.write(string)
 
     def save(self, path=None, user=True, comment=None, backup=True, description=False):
         """
@@ -1710,8 +1592,8 @@ class Configurator(MutableMapping, dict):
             os.rename(path, backup)
             warnings._warn_proplot(f'Existing file {path!r} was moved to {backup!r}.')
         comment = _not_none(comment, user)
-        user_dict = self.changed if user else None
-        self._save_yaml(path, user_dict, comment=comment, description=description)
+        changed = self.changed if user else None
+        self._save_yaml(path, changed, comment, description)
 
     @property
     def _context_mode(self):
@@ -1729,22 +1611,20 @@ class Configurator(MutableMapping, dict):
         --------
         Configurator.save
         """
-        # Carefully detect changed settings
-        rcdict = {}
+        # TODO: For now not sure how to detect if property cycle changed since
+        # we cannot load it from _cmap_database during setup.
+        kw = {}
         for key, value in self.items():
-            default = rcsetup._get_default_param(key)
+            default = settings._get_default_param(key)
             if isinstance(value, Real) and isinstance(default, Real) and np.isclose(value, default):  # noqa: E501
                 pass
             elif value == default:
                 pass
             else:
-                rcdict[key] = value
-        # Ignore non-style-related settings. See mstyle.STYLE_BLACKLIST
-        # TODO: For now not sure how to detect if prop cycle changed since
-        # we cannot load it from _cmap_database in rcsetup.
-        rcdict.pop('interactive', None)  # changed by backend
-        rcdict.pop('axes.prop_cycle', None)
-        return _filter_style_dict(rcdict, warn=False)
+                kw[key] = value
+        kw.pop('interactive', None)  # changed by backend
+        kw.pop('axes.prop_cycle', None)
+        return settings._filter_style_dict(kw, warn=False)
 
     # Renamed methods
     load_file = warnings._rename_objs('0.8.0', load_file=load)
@@ -1760,11 +1640,11 @@ rc_matplotlib = mpl.rcParams  # PEP8 4 lyfe
 
 #: A dictionary-like container of proplot settings. Assignments are
 #: validated and restricted to recognized setting names.
-rc_proplot = rcsetup._rc_proplot_default.copy()  # a validated rcParams-style dict
+rc_proplot = settings._rc_proplot_default.copy()  # a validated rcParams-style dict
 
 #: Instance of `Configurator`. This controls both `rc_matplotlib` and `rc_proplot`
 #: settings. See the :ref:`configuration guide <ug_config>` for details.
-rc = Configurator(skip_cycle=True)
+rc = Configurator(skip_prop_cycle=True)
 
 # Deprecated
 RcConfigurator = warnings._rename_objs(

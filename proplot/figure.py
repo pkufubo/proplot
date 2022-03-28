@@ -22,12 +22,12 @@ from .config import rc, rc_matplotlib
 from .internals import ic  # noqa: F401
 from .internals import (
     _not_none,
-    _pop_params,
-    _pop_rc,
-    _translate_loc,
+    _pop_parameters,
+    _pop_settings,
     context,
     docstring,
     labels,
+    validate,
     warnings,
 )
 from .utils import units
@@ -705,8 +705,8 @@ class Figure(mfigure.Figure):
         self._is_authorized = False
         self._includepanels = None
         self._render_context = {}
-        rc_kw, rc_mode = _pop_rc(kwargs)
-        kw_format = _pop_params(kwargs, self._format_signature)
+        rc_kw, rc_mode = _pop_settings(kwargs)
+        kw_format = _pop_parameters(kwargs, self._format_signature)
         if figwidth is not None and figheight is not None:
             kwargs['figsize'] = (figwidth, figheight)
         with self._context_authorized():
@@ -915,13 +915,13 @@ class Figure(mfigure.Figure):
         if not isinstance(ax, maxes.SubplotBase):
             raise RuntimeError('Cannot add panels to non-subplot axes.')
         orig = ax._panel_side
+        side = validate._validate_loc(side, 'panel', default=_not_none(orig, 'right'))
         if orig is None:
             pass
         elif side is None or side == orig:
             ax, side = ax._panel_parent, orig
         else:
             raise RuntimeError(f'Cannot add {side!r} panel to existing {orig!r} panel.')
-        side = _translate_loc(side, 'panel', default=_not_none(orig, 'right'))
 
         # Add and setup the panel accounting for index changes
         # NOTE: Always put tick labels on the 'outside' and permit arbitrary
@@ -929,7 +929,7 @@ class Figure(mfigure.Figure):
         gs = self.gridspec
         if not gs:
             raise RuntimeError('The gridspec must be active.')
-        kw = _pop_params(kwargs, gs._insert_panel_slot)
+        kw = _pop_parameters(kwargs, gs._insert_panel_slot)
         ss, share = gs._insert_panel_slot(side, ax, **kw)
         kwargs['autoshare'] = False
         kwargs.setdefault('number', False)  # power users might number panels
@@ -951,7 +951,7 @@ class Figure(mfigure.Figure):
         Add a figure panel.
         """
         # Interpret args and enforce sensible keyword args
-        side = _translate_loc(side, 'panel', default='right')
+        side = validate._validate_loc(side, 'panel', default='right')
         if side in ('left', 'right'):
             for key, value in (('col', col), ('cols', cols)):
                 if value is not None:
@@ -1100,7 +1100,8 @@ class Figure(mfigure.Figure):
             if output.keys() != set(range(1, naxs + 1)):
                 raise ValueError(
                     f'Have {naxs} axes, but {input!r} includes props for the axes: '
-                    + ', '.join(map(repr, sorted(output))) + '.'
+                    + ', '.join(map(repr, sorted(output)))
+                    + '.'
                 )
             return output
 
@@ -1148,8 +1149,8 @@ class Figure(mfigure.Figure):
                 'parameters as keyword arguments instead.'
             )
             kwargs.update(kw or {})
-        figure_kw = _pop_params(kwargs, self._format_signature)
-        gridspec_kw = _pop_params(kwargs, pgridspec.GridSpec._update_params)
+        figure_kw = _pop_parameters(kwargs, self._format_signature)
+        gridspec_kw = _pop_parameters(kwargs, pgridspec.GridSpec._update_params)
 
         # Create or update the gridspec and add subplots with subplotspecs
         # NOTE: The gridspec is added to the figure when we pass the subplotspec
@@ -1528,7 +1529,7 @@ class Figure(mfigure.Figure):
         # Initiate context block
         axs = axs or self._subplot_dict.values()
         skip_axes = kwargs.pop('skip_axes', False)  # internal keyword arg
-        rc_kw, rc_mode = _pop_rc(kwargs)
+        rc_kw, rc_mode = _pop_settings(kwargs)
         with rc.context(rc_kw, mode=rc_mode):
             # Update background patch
             kw = rc.fill({'facecolor': 'figure.facecolor'}, context=True)
@@ -1580,7 +1581,7 @@ class Figure(mfigure.Figure):
         if skip_axes:  # avoid recursion
             return
         kws = {
-            cls: _pop_params(kwargs, sig)
+            cls: _pop_parameters(kwargs, sig)
             for cls, sig in paxes.Axes._format_signatures.items()
         }
         classes = set()  # track used dictionaries

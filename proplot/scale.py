@@ -933,7 +933,8 @@ def _scale_factory(scale, axis, *args, **kwargs):  # noqa: U100
         if scale not in mapping:
             raise ValueError(
                 f'Unknown axis scale {scale!r}. Options are '
-                + ', '.join(map(repr, mapping)) + '.'
+                + ', '.join(map(repr, mapping))
+                + '.'
             )
         return mapping[scale](*args, **kwargs)
 

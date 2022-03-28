@@ -458,7 +458,8 @@ def _draw_bars(
     if any(cat not in options and cat != unknown for cat in include):
         raise ValueError(
             f'Invalid categories {include!r}. Options are: '
-            + ', '.join(map(repr, source)) + '.'
+            + ', '.join(map(repr, source))
+            + '.'
         )
     for cat in tuple(table):
         table[cat][:] = [cmap for cmap in table[cat] if cmap is not None]
@@ -701,7 +702,8 @@ def show_colors(*, nhues=17, minsat=10, unknown='User', include=None, ignore=Non
         if cat not in COLOR_TABLE:
             raise ValueError(
                 f'Invalid categories {include!r}. Options are: '
-                + ', '.join(map(repr, COLOR_TABLE)) + '.'
+                + ', '.join(map(repr, COLOR_TABLE))
+                + '.'
             )
         colordict[cat] = list(COLOR_TABLE[cat])  # copy the names
 
@@ -897,7 +899,8 @@ def show_fonts(
         if family not in options:
             raise ValueError(
                 f'Invalid font family {family!r}. Options are: '
-                + ', '.join(map(repr, options)) + '.'
+                + ', '.join(map(repr, options))
+                + '.'
             )
         names = FAMILY_TEXGYRE if family == 'tex-gyre' else rc['font.' + family]
         for name in names:

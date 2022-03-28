@@ -75,8 +75,8 @@ with _benchmark('fonts'):
 # Validate colormap names and propagate 'cycle' to 'axes.prop_cycle'
 # NOTE: cmap.sequential also updates siblings 'cmap' and 'image.cmap'
 from .config import rc
-from .internals import rcsetup, warnings
-rcsetup.VALIDATE_REGISTERED_CMAPS = True
+from .internals import validate, warnings
+validate.VALIDATE_REGISTERED_CMAPS = True
 for _key in ('cycle', 'cmap.sequential', 'cmap.diverging', 'cmap.cyclic', 'cmap.qualitative'):  # noqa: E501
     try:
         rc[_key] = rc[_key]
@@ -87,7 +87,7 @@ for _key in ('cycle', 'cmap.sequential', 'cmap.diverging', 'cmap.cyclic', 'cmap.
 # Validate color names now that colors are registered
 # NOTE: This updates all settings with 'color' in name (harmless if it's not a color)
 from .config import rc_proplot, rc_matplotlib
-rcsetup.VALIDATE_REGISTERED_COLORS = True
+validate.VALIDATE_REGISTERED_COLORS = True
 for _src in (rc_proplot, rc_matplotlib):
     for _key in _src:  # loop through unsynced properties
         if 'color' not in _key:
@@ -97,3 +97,7 @@ for _src in (rc_proplot, rc_matplotlib):
         except ValueError as err:
             warnings._warn_proplot(f'Invalid user rc file setting: {err}')
             _src[_key] = 'black'  # fill value
+
+# Store the original rc state
+_rc_matplotlib_orig = rc_matplotlib.copy()
+_rc_proplot_orig = rc_proplot.copy()

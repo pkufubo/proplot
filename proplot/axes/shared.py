@@ -8,7 +8,7 @@ import numpy as np
 
 from ..config import rc
 from ..internals import ic  # noqa: F401
-from ..internals import _pop_kwargs
+from ..internals import _pop_items
 from ..utils import _fontsize_to_pt, _not_none, units
 
 
@@ -93,7 +93,7 @@ class _SharedAxes(object):
         # Filter out text properties
         axis = 'both' if x is None else x
         kwtext = rc._get_ticklabel_props(axis)
-        kwtext_extra = _pop_kwargs(kwtext, 'weight', 'family')
+        kwtext_extra = _pop_items(kwtext, 'weight', 'family')
         kwtext = {'label' + key: value for key, value in kwtext.items()}
         if labelcolor is not None:
             kwtext['labelcolor'] = labelcolor

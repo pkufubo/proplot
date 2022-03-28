@@ -7,7 +7,7 @@ import os
 from docutils import nodes
 from matplotlib import rcParams
 
-from proplot.internals import rcsetup
+from proplot.internals import params
 
 
 def _node_list(rawtext, text, inliner):
@@ -43,7 +43,7 @@ def rc_role(name, rawtext, text, lineno, inliner, options={}, content=[]):  # no
     """
     node_list = _node_list(rawtext, text, inliner)
     try:
-        default = rcsetup._get_default_param(text)
+        default = params._get_default(text)
     except KeyError:
         pass
     else:

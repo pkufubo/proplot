@@ -33,7 +33,7 @@ from .internals import ic  # noqa: F401
 from .internals import (
     _kwargs_to_args,
     _not_none,
-    _pop_props,
+    _pop_properties,
     docstring,
     inputs,
     warnings,
@@ -966,7 +966,7 @@ class ContinuousColormap(mcolors.LinearSegmentedColormap, _Colormap):
         if not isinstance(segmentdata, dict):
             raise ValueError(f'Invalid segmentdata {segmentdata}. Must be a dict.')
         N = _not_none(N, rc['image.lut'])
-        data = _pop_props(segmentdata, 'rgba', 'hsla')
+        data = _pop_properties(segmentdata, 'rgba', 'hsla')
         if segmentdata:
             raise ValueError(f'Invalid segmentdata keys {tuple(segmentdata)}.')
         super().__init__(name, data, N=N, gamma=gamma, **kwargs)
@@ -1931,7 +1931,7 @@ class PerceptualColormap(ContinuousColormap):
         name, segmentdata, N, kwargs = self._pop_args(
             *args, names=('segmentdata', 'N'), **kwargs
         )
-        data = _pop_props(segmentdata, 'hsla')
+        data = _pop_properties(segmentdata, 'hsla')
         if segmentdata:
             raise ValueError(f'Invalid segmentdata keys {tuple(segmentdata)}.')
         space = _not_none(space, DEFAULT_SPACE).lower()
@@ -2120,7 +2120,7 @@ class PerceptualColormap(ContinuousColormap):
             *args, names=('color', 'space'), **kwargs
         )
         space = _not_none(space, DEFAULT_SPACE).lower()
-        props = _pop_props(kwargs, 'hsla')
+        props = _pop_properties(kwargs, 'hsla')
         if props.get('hue', None) is not None:
             raise TypeError("from_color() got an unexpected keyword argument 'hue'")
         hue, saturation, luminance, alpha = to_xyza(color, space)
@@ -2188,7 +2188,7 @@ class PerceptualColormap(ContinuousColormap):
             *args, names=('space', 'ratios'), **kwargs
         )
         cdict = {}
-        props = _pop_props(kwargs, 'hsla')
+        props = _pop_properties(kwargs, 'hsla')
         for key, default in (
             ('hue', 0),
             ('saturation', 100),

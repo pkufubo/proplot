@@ -30,7 +30,13 @@ from . import scale as pscale
 from . import ticker as pticker
 from .config import rc
 from .internals import ic  # noqa: F401
-from .internals import _not_none, _pop_props, _version_cartopy, _version_mpl, warnings
+from .internals import (
+    _not_none,
+    _pop_properties,
+    _version_cartopy,
+    _version_mpl,
+    warnings,
+)
 from .utils import get_colors, to_hex, to_rgba
 
 try:
@@ -555,7 +561,7 @@ def Colormap(
         return value, values
 
     # Parse keyword args that can apply to the merged colormap or each one
-    hsla = _pop_props(kwargs, 'hsla')
+    hsla = _pop_properties(kwargs, 'hsla')
     if not args and hsla.keys() - {'alpha'}:
         args = (hsla,)
     else:
@@ -787,7 +793,7 @@ markeredgecolors, markerfacecolors
     """
     # Parse keyword arguments that rotate through other properties
     # besides color cycles.
-    props = _pop_props(kwargs, 'line')
+    props = _pop_properties(kwargs, 'line')
     if 'sizes' in kwargs:  # special case, gets translated back by scatter()
         props.setdefault('markersize', kwargs.pop('sizes'))
     samples = _not_none(samples=samples, N=N)  # trigger Colormap default
